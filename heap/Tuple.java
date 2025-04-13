@@ -277,6 +277,35 @@ public class Tuple implements GlobalConst{
     }
 
   /**
+   * Convert this field into a 100D vector
+   *
+   * @param    fldNo   the field number
+   * @return           the 100D vector if success
+   *
+   * @exception   IOException I/O errors
+   * @exception   FieldNumberOutOfBoundException Tuple field number out of bound
+   */
+
+  public Vector100Dtype get100DVectFld(int fldNo)
+    throws IOException, FieldNumberOutOfBoundException 
+  {
+    if ((fldNo > 0) && (fldNo <= fldCnt)) {
+      short[] vector = new short[Vector100Dtype.SIZE];
+      int startOffset = fldOffset[fldNo - 1];
+
+      for (int i = 0; i < Vector100Dtype.SIZE; i++) {
+        // 2 bytes per short so we multiply i by 2 to accomaodate the size when moving
+        vector[i] = Convert.getShortValue(startOffset + i * 2, data);
+      }
+
+      return new Vector100Dtype(vector);
+    } 
+    else {
+      throw new FieldNumberOutOfBoundException(null, "TUPLE:TUPLE_FLDNO_OUT_OF_BOUND");
+    }
+  }
+
+  /**
    * Set this field to integer value
    *
    * @param	fldNo	the field number
@@ -341,6 +370,30 @@ public class Tuple implements GlobalConst{
     }
 
 
+    /**
+     * Set this field to Vector100Dtype value
+     *
+     * @param     fldNo   the field number
+     * @param     val     the Vector100Dtype value
+     * @exception   IOException I/O errors
+     * @exception   FieldNumberOutOfBoundException Tuple field number out of bound
+     */
+    public void set100DVectFld(int fldNo, Vector100Dtype val)
+        throws IOException, FieldNumberOutOfBoundException 
+    {
+        if ((fldNo > 0) && (fldNo <= fldCnt)) {
+            short[] vector = val.getVector();
+            int startOffset = fldOffset[fldNo - 1];
+
+            for (int i = 0; i < Vector100Dtype.SIZE; i++) {
+                // 2 bytes per short so need to multiply i by 2 to move without overlapping
+                Convert.setShortValue(vector[i], startOffset + i * 2, data);
+            }
+        } else {
+            throw new FieldNumberOutOfBoundException(null, "TUPLE:TUPLE_FLDNO_OUT_OF_BOUND");
+        }
+    }
+
    /**
     * setHdr will set the header of this tuple.   
     *
@@ -358,17 +411,17 @@ public void setHdr (short numFlds,  AttrType types[], short strSizes[])
  throws IOException, InvalidTypeException, InvalidTupleSizeException		
 {
   if((numFlds +2)*2 > max_size)
-    throw new InvalidTupleSizeException (null, "TUPLE: TUPLE_TOOBIG_ERROR");
-  
+    throw new InvalidTupleSizeException (null, "TUPLE: TUPLE_TOO_BIG_ERROR");
+
   fldCnt = numFlds;
   Convert.setShortValue(numFlds, tuple_offset, data);
   fldOffset = new short[numFlds+1];
   int pos = tuple_offset+2;  // start position for fldOffset[]
-  
+
   //sizeof short =2  +2: array siaze = numFlds +1 (0 - numFilds) and
   //another 1 for fldCnt
   fldOffset[0] = (short) ((numFlds +2) * 2 + tuple_offset);   
-   
+    
   Convert.setShortValue(fldOffset[0], pos, data);
   pos +=2;
   short strCount =0;
@@ -377,45 +430,54 @@ public void setHdr (short numFlds,  AttrType types[], short strSizes[])
 
   for (i=1; i<numFlds; i++)
   {
-    switch(types[i-1].attrType) {
-    
-   case AttrType.attrInteger:
-     incr = 4;
-     break;
+    switch(types[i-1].attrType) 
+    {
+      case AttrType.attrInteger:
+        incr = 4;
+        break;
 
-   case AttrType.attrReal:
-     incr =4;
-     break;
+      case AttrType.attrReal:
+        incr =4;
+        break;
 
-   case AttrType.attrString:
-     incr = (short) (strSizes[strCount] +2);  //strlen in bytes = strlen +2
-     strCount++;
-     break;       
- 
-   default:
-    throw new InvalidTypeException (null, "TUPLE: TUPLE_TYPE_ERROR");
-   }
-  fldOffset[i]  = (short) (fldOffset[i-1] + incr);
-  Convert.setShortValue(fldOffset[i], pos, data);
-  pos +=2;
- 
-}
- switch(types[numFlds -1].attrType) {
+      case AttrType.attrString:
+        incr = (short) (strSizes[strCount] +2);  //strlen in bytes = strlen +2
+        strCount++;
+        break;
+        
+      case AttrType.attrVector100D:
+        incr = 200; // 100 dimensions * 2 bytes per dimension
+        break;
 
-   case AttrType.attrInteger:
-     incr = 4;
-     break;
+      default:
+        throw new InvalidTypeException (null, "TUPLE: TUPLE_TYPE_ERROR");
+    }
 
-   case AttrType.attrReal:
-     incr =4;
-     break;
+    fldOffset[i]  = (short) (fldOffset[i-1] + incr);
+    Convert.setShortValue(fldOffset[i], pos, data);
+    pos +=2;
+  }
 
-   case AttrType.attrString:
-     incr =(short) ( strSizes[strCount] +2);  //strlen in bytes = strlen +2
-     break;
+  switch(types[numFlds -1].attrType) 
+  {
+    case AttrType.attrInteger:
+      incr = 4;
+      break;
 
-   default:
-    throw new InvalidTypeException (null, "TUPLE: TUPLE_TYPE_ERROR");
+    case AttrType.attrReal:
+      incr =4;
+      break;
+
+    case AttrType.attrString:
+      incr =(short) ( strSizes[strCount] +2);  //strlen in bytes = strlen +2
+      break;
+
+    case AttrType.attrVector100D:
+      incr = 200; // 100 dimensions * 2 bytes per dimension
+      break;
+
+    default:
+      throw new InvalidTypeException (null, "TUPLE: TUPLE_TYPE_ERROR");
    }
 
   fldOffset[numFlds] = (short) (fldOffset[i-1] + incr);
@@ -464,7 +526,7 @@ public void setHdr (short numFlds,  AttrType types[], short strSizes[])
   */
  public void print(AttrType type[])
     throws IOException 
- {
+  {
   int i, val;
   float fval;
   String sval;
@@ -488,16 +550,32 @@ public void setHdr (short numFlds,  AttrType types[], short strSizes[])
      sval = Convert.getStrValue(fldOffset[i], data,fldOffset[i+1] - fldOffset[i]);
      System.out.print(sval);
      break;
-  
+
+    case AttrType.attrVector100D:
+      // Printing the 100D vector, because why not, gonna look ugly
+      short[] vector = new short[Vector100Dtype.SIZE];
+      for (int j = 0; j < Vector100Dtype.SIZE; j++) {
+          vector[j] = Convert.getShortValue(fldOffset[i] + j * 2, data);
+      }
+
+      System.out.print("Vector: ");
+      for (short v : vector) {
+          System.out.print(v + " ");
+      }
+      break;
+    
    case AttrType.attrNull:
+      break;
+
    case AttrType.attrSymbol:
      break;
    }
+
    System.out.print(", ");
  } 
  
- switch(type[fldCnt-1].attrType) {
-
+ switch(type[fldCnt-1].attrType) 
+  {
    case AttrType.attrInteger:
      val = Convert.getIntValue(fldOffset[i], data);
      System.out.print(val);
@@ -513,13 +591,27 @@ public void setHdr (short numFlds,  AttrType types[], short strSizes[])
      System.out.print(sval);
      break;
 
-   case AttrType.attrNull:
-   case AttrType.attrSymbol:
-     break;
-   }
-   System.out.println("]");
+    case AttrType.attrVector100D:
+      // Printing the 100D vector, because why not, gonna look ugly
+      short[] vector = new short[Vector100Dtype.SIZE];
+      for (int j = 0; j < Vector100Dtype.SIZE; j++) {
+          vector[j] = Convert.getShortValue(fldOffset[i] + j * 2, data);
+      }
 
- }
+      System.out.print("Vector: ");
+      for (short v : vector) {
+          System.out.print(v + " ");
+      }
+      break;
+    
+   case AttrType.attrNull:
+    break;
+   case AttrType.attrSymbol:
+    break;
+  }
+   
+    System.out.println("]");
+  }
 
   /**
    * private method
