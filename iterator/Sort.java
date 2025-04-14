@@ -1,6 +1,8 @@
 package iterator;
 
-import java.io.*; 
+import java.io.*;
+import java.util.ArrayList;
+
 import global.*;
 import bufmgr.*;
 import diskmgr.*;
@@ -33,6 +35,12 @@ public class Sort extends Iterator implements GlobalConst
   private int         sortFldLen;
   private int         tuple_size;
   
+  private Vector100Dtype target;
+  private int k;
+  private boolean isVectorSort = false;
+  private ArrayList<Tuple> kTuples = null;
+  private int kIndex = 0;
+
   private pnodeSplayPQ Q;
   private Heapfile[]   temp_files; 
   private int          n_tempfiles;
@@ -167,35 +175,36 @@ public class Sort extends Iterator implements GlobalConst
     // set the lastElem to be the minimum value for the sort field
     if(order.tupleOrder == TupleOrder.Ascending) {
       try {
-	MIN_VAL(lastElem, sortFldType);
+	      MIN_VAL(lastElem, sortFldType);
       } catch (UnknowAttrType e) {
-	throw new SortException(e, "Sort.java: UnknowAttrType caught from MIN_VAL()");
+	      throw new SortException(e, "Sort.java: UnknowAttrType caught from MIN_VAL()");
       } catch (Exception e) {
-	throw new SortException(e, "MIN_VAL failed");
+	      throw new SortException(e, "MIN_VAL failed");
       } 
     }
     else {
       try {
-	MAX_VAL(lastElem, sortFldType);
+	      MAX_VAL(lastElem, sortFldType);
       } catch (UnknowAttrType e) {
-	throw new SortException(e, "Sort.java: UnknowAttrType caught from MAX_VAL()");
+	      throw new SortException(e, "Sort.java: UnknowAttrType caught from MAX_VAL()");
       } catch (Exception e) {
-	throw new SortException(e, "MIN_VAL failed");
+	      throw new SortException(e, "MIN_VAL failed");
       } 
     }
     
     // maintain a fixed maximum number of elements in the heap
     while ((p_elems_curr_Q + p_elems_other_Q) < max_elems) {
       try {
-	tuple = _am.get_next();  // according to Iterator.java
+	      tuple = _am.get_next();  // according to Iterator.java
       } catch (Exception e) {
-	e.printStackTrace(); 
-	throw new SortException(e, "Sort.java: get_next() failed");
+        e.printStackTrace(); 
+        throw new SortException(e, "Sort.java: get_next() failed");
       } 
       
       if (tuple == null) {
-	break;
+	      break;
       }
+
       cur_node = new pnode();
       cur_node.tuple = new Tuple(tuple); // tuple copy needed --  Bingjie 4/29/98 
 
@@ -211,17 +220,25 @@ public class Sort extends Iterator implements GlobalConst
       if (cur_node == null) break; 
       p_elems_curr_Q --;
       
-      comp_res = TupleUtils.CompareTupleWithValue(sortFldType, cur_node.tuple, _sort_fld, lastElem);  // need tuple_utils.java
+      if (isVectorSort) {
+        Vector100Dtype v1 = cur_node.tuple.get100DVectFld(_sort_fld);
+        Vector100Dtype v2 = lastElem.get100DVectFld(_sort_fld);
+
+        comp_res = getDist(v1, v2);
+      } 
+      else {
+        comp_res = TupleUtils.CompareTupleWithValue(sortFldType, cur_node.tuple, _sort_fld, lastElem); // need tuple_utils.java
+      } 
       
       if ((comp_res < 0 && order.tupleOrder == TupleOrder.Ascending) || (comp_res > 0 && order.tupleOrder == TupleOrder.Descending)) {
-	// doesn't fit in current run, put into the other queue
-	try {
-	  pother_Q.enq(cur_node);
-	}
-	catch (UnknowAttrType e) {
-	  throw new SortException(e, "Sort.java: UnknowAttrType caught from Q.enq()");
-	}
-	p_elems_other_Q ++;
+        // doesn't fit in current run, put into the other queue
+        try {
+          pother_Q.enq(cur_node);
+        }
+        catch (UnknowAttrType e) {
+          throw new SortException(e, "Sort.java: UnknowAttrType caught from Q.enq()");
+        }
+        p_elems_other_Q ++;
       }
       else {
 	// set lastElem to have the value of the current tuple,
@@ -399,6 +416,15 @@ public class Sort extends Iterator implements GlobalConst
     
     return run_num; 
   }
+
+  private int getDist(Vector100Dtype v1, Vector100Dtype v2) {
+    float dist = 0;
+      for (int i = 0; i < Vector100Dtype.SIZE; i++) {
+        dist += Math.pow(v1.getVector()[i] - v2.getVector()[i], 2);
+      }
+
+    return (int) Math.sqrt(dist);
+  }
   
   /**
    * Remove the minimum value among all the runs.
@@ -573,7 +599,7 @@ public class Sort extends Iterator implements GlobalConst
     for (int i=0; i<len_in; i++) {
       _in[i] = new AttrType(in[i].attrType);
       if (in[i].attrType == AttrType.attrString) {
-	n_strs ++;
+	      n_strs ++;
       } 
     }
     
@@ -582,8 +608,8 @@ public class Sort extends Iterator implements GlobalConst
     n_strs = 0;
     for (int i=0; i<len_in; i++) {
       if (_in[i].attrType == AttrType.attrString) {
-	str_lens[n_strs] = str_sizes[n_strs];
-	n_strs ++;
+        str_lens[n_strs] = str_sizes[n_strs];
+        n_strs ++;
       }
     }
     
@@ -608,10 +634,10 @@ public class Sort extends Iterator implements GlobalConst
 
     if (useBM) {
       try {
-	get_buffer_pages(_n_pages, bufs_pids, bufs);
+	      get_buffer_pages(_n_pages, bufs_pids, bufs);
       }
       catch (Exception e) {
-	throw new SortException(e, "Sort.java: BUFmgr error");
+	      throw new SortException(e, "Sort.java: BUFmgr error");
       }
     }
     else {
@@ -653,6 +679,28 @@ public class Sort extends Iterator implements GlobalConst
     }
   }
   
+  public Sort(AttrType[] in,         
+	      short      len_in,             
+	      short[]    str_sizes,
+	      Iterator   am,                 
+	      int        sort_fld,          
+	      TupleOrder sort_order,     
+	      int        sort_fld_len,  
+	      int        n_pages,
+        Vector100Dtype target,
+        int k      
+	      ) throws IOException, SortException
+  {
+    // Reuse the old constructor, this is like extension, don't want to rewrite the same code
+    this(in, len_in, str_sizes, am, sort_fld, sort_order, sort_fld_len, n_pages);
+  
+    if (in[sort_fld - 1].attrType == AttrType.attrVector100D) {
+      isVectorSort = true;
+      this.target = target;
+      this.k = k;
+    }
+  }
+
   /**
    * Returns the next tuple in sorted order.
    * Note: You need to copy out the content of the tuple, otherwise it
@@ -686,6 +734,41 @@ public class Sort extends Iterator implements GlobalConst
       setup_for_merge(tuple_size, Nruns);
     }
     
+    if (k > 0 && isVectorSort) 
+    {
+      // Load all into memory, sort by distance, and return top-k
+      ArrayList<Tuple> allTuples = new ArrayList<>();
+      Tuple t;
+
+      while ((t = delete_min()) != null) 
+      {
+        allTuples.add(new Tuple(t));
+      }
+
+      allTuples.sort((a, b) -> {
+        try {
+          return getDist(a.get100DVectFld(_sort_fld), target) -
+                    getDist(b.get100DVectFld(_sort_fld), target);
+        } 
+        catch (Exception e) {
+          return 0;
+        }
+      });
+
+      // Get top k tuples
+      kTuples = new ArrayList<>(allTuples.subList(0, k));
+    }
+
+    if (isVectorSort) // Gotta make sure we are sorting vectors first
+    {
+      // Return the next tuple from the sorted list, if available
+      if (kTuples != null && kIndex < kTuples.size()) {
+        Tuple result = kTuples.get(kIndex++);
+        op_buf.tupleCopy(result);
+        return op_buf;
+      }
+    }
+
     if (Q.empty()) {  
       // no more tuples availble
       return null;
