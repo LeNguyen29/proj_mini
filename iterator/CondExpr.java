@@ -33,6 +33,11 @@ public class CondExpr {
    * Pointer to the next element in linked list
    */    
   public CondExpr    next;   
+
+  /**
+   * Distance between two tuples, used when operands are Vector100D type
+   */
+  public int distance;
   
   /**
    *constructor
@@ -46,6 +51,8 @@ public class CondExpr {
     operand2.integer = 0;
     
     next = null;
+
+    distance = -1; // Negative value means that distance is not used
   }
 }
 
