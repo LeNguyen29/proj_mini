@@ -30,4 +30,16 @@ public class Vector100Dtype {
     public short[] getVector() {
         return vector;
     }
+
+    /**
+     * Get the element at the specified index
+     * @param index the index of the element to retrieve
+     * @return the element at the specified index
+     */
+    public short getVector100DElement(int index) {
+        if (index < 0 || index >= SIZE) {
+            throw new IndexOutOfBoundsException("Index must be between 0 and " + (SIZE - 1));
+        }
+        return vector[index];
+    }
 }
